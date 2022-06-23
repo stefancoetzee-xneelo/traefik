@@ -46,6 +46,7 @@ type Provider struct {
 	ThrottleDuration          ptypes.Duration  `description:"Ingress refresh throttle duration" json:"throttleDuration,omitempty" toml:"throttleDuration,omitempty" yaml:"throttleDuration,omitempty" export:"true"`
 	AllowEmptyServices        bool             `description:"Allow creation of services without endpoints." json:"allowEmptyServices,omitempty" toml:"allowEmptyServices,omitempty" yaml:"allowEmptyServices,omitempty" export:"true"`
 	AllowExternalNameServices bool             `description:"Allow ExternalName services." json:"allowExternalNameServices,omitempty" toml:"allowExternalNameServices,omitempty" yaml:"allowExternalNameServices,omitempty" export:"true"`
+	AllowTopologyAwareHints   bool             `description:"Allow using kubernetes topology aware hints" json:"allowTopologyAwareHints,omitempty" toml:"allowTopologyAwareHints,omitempty" yaml:"allowTopologyAwareHints,omitempty" export:"true"`
 	lastConfiguration         safe.Safe
 }
 
@@ -110,6 +111,10 @@ func (p *Provider) Provide(configurationChan chan<- dynamic.Message, pool *safe.
 
 	if p.AllowExternalNameServices {
 		logger.Warn("ExternalName service loading is enabled, please ensure that this is expected (see AllowExternalNameServices option)")
+	}
+
+	if p.AllowTopologyAwareHints {
+		logger.Warn("TopologyAwareHints is enabled, please ensure that this is expected (see AllowTopologyAwareHints option)")
 	}
 
 	pool.GoCtx(func(ctxPool context.Context) {
@@ -548,6 +553,42 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 			{URL: fmt.Sprintf("%s://%s", protocol, hostPort)},
 		}
 
+		return svc, nil
+	}
+
+	if p.AllowTopologyAwareHints {
+		endpointSlices, endpointSliceExists, endpointSliceErr := client.GetEndpointSlice(namespace, backend.Service.Name)
+		if endpointSliceErr != nil {
+			return nil, endpointSliceErr
+		}
+
+		if !endpointSliceExists {
+			return nil, errors.New("endpointSlices not found")
+		}
+		for _, endpointSlice := range endpointSlices {
+			var port int32
+			for _, p := range endpointSlice.Ports {
+				if portName == *p.Name {
+					port = *p.Port
+					break
+				}
+			}
+
+			if port == 0 {
+				continue
+			}
+
+			protocol := getProtocol(portSpec, portName, svcConfig)
+			for _, endpoint := range endpointSlice.Endpoints {
+				for _, address := range endpoint.Addresses{
+					hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
+
+					svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
+						URL: fmt.Sprintf("%s://%s", protocol, hostPort),
+					})
+				}
+			}
+		}
 		return svc, nil
 	}
 
