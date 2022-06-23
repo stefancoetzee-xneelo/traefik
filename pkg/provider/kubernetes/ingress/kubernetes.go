@@ -580,12 +580,14 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 
 			protocol := getProtocol(portSpec, portName, svcConfig)
 			for _, endpoint := range endpointSlice.Endpoints {
-				for _, address := range endpoint.Addresses{
-					hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
+				if *endpoint.Conditions.Ready {
+					for _, address := range endpoint.Addresses{
+						hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
 
-					svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
-						URL: fmt.Sprintf("%s://%s", protocol, hostPort),
-					})
+						svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
+							URL: fmt.Sprintf("%s://%s", protocol, hostPort),
+						})
+					}
 				}
 			}
 		}
