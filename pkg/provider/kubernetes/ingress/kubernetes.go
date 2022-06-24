@@ -90,6 +90,32 @@ func (p *Provider) newK8sClient(ctx context.Context) (*clientWrapper, error) {
 	}
 
 	cl.ingressLabelSelector = p.LabelSelector
+
+	if p.AllowTopologyAwareHints {
+		nodeName := os.Getenv("POD_NODE_NAME")
+		if nodeName == "" {
+			logger.Infof("Skipping topology aware endpoint filtering since POD_NODE_NAME environment not set")
+			p.AllowTopologyAwareHints = false
+			return cl, nil
+		}
+		node, nodeExists, err := cl.GetNode(nodeName)
+		if err != nil {
+			return nil, err
+		}
+		if !nodeExists {
+			logger.Infof("Skipping topology aware endpoint filtering since could not read node %s", nodeName)
+			p.AllowTopologyAwareHints = false
+			return cl, nil
+		}
+		zone, ok := node.Labels[corev1.LabelTopologyZone]
+		if !ok || zone == "" {
+			logger.Infof("Skipping topology aware endpoint filtering since node is missing label %s", corev1.LabelTopologyZone)
+			p.AllowTopologyAwareHints = false
+			return cl, nil
+		}
+		logger.Debugf("Setting topology aware endpoint filtering to zone: %s", zone)
+		cl.zoneHint = zone
+	}
 	return cl, nil
 }
 

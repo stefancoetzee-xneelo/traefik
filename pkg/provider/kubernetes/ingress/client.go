@@ -47,6 +47,7 @@ type Client interface {
 	GetSecret(namespace, name string) (*corev1.Secret, bool, error)
 	GetEndpoints(namespace, name string) (*corev1.Endpoints, bool, error)
 	GetEndpointSlice(namespace, name string) ([]*discoveryv1beta1.EndpointSlice, bool, error)
+	GetNode(name string) (*corev1.Node, bool, error)
 	UpdateIngressStatus(ing *networkingv1.Ingress, ingStatus []corev1.LoadBalancerIngress) error
 	GetServerVersion() *version.Version
 }
@@ -61,6 +62,7 @@ type clientWrapper struct {
 	isNamespaceAll       bool
 	watchedNamespaces    []string
 	serverVersion        *version.Version
+	zoneHint			 string
 }
 
 // newInClusterClient returns a new Provider client that is expected to run
@@ -458,6 +460,7 @@ func (c *clientWrapper) GetEndpoints(namespace, name string) (*corev1.Endpoints,
 	exist, err := translateNotFoundError(err)
 	return endpoint, exist, err
 }
+
 // GetEndpointSlice returns the named endpointslices from the given namespace.
 func (c *clientWrapper) GetEndpointSlice(namespace, name string) ([]*discoveryv1beta1.EndpointSlice, bool, error) {
 	if !c.isWatchedNamespace(namespace) {
@@ -469,6 +472,14 @@ func (c *clientWrapper) GetEndpointSlice(namespace, name string) ([]*discoveryv1
 	endpointslice, err := c.factoriesKube[c.lookupNamespace(namespace)].Discovery().V1beta1().EndpointSlices().Lister().EndpointSlices(namespace).List(validatedSelector)
 	exist, err := translateNotFoundError(err)
 	return endpointslice, exist, err
+}
+
+func(c *clientWrapper) GetNode(name string) (*corev1.Node, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+	node, err := c.clientset.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	exist, err := translateNotFoundError(err)
+	return node, exist, err
 }
 
 // GetSecret returns the named secret from the given namespace.
