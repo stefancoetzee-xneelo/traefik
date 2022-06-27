@@ -48,6 +48,7 @@ type Client interface {
 	GetEndpoints(namespace, name string) (*corev1.Endpoints, bool, error)
 	GetEndpointSlice(namespace, name string) ([]*discoveryv1beta1.EndpointSlice, bool, error)
 	GetNode(name string) (*corev1.Node, bool, error)
+	GetZone() (string)
 	UpdateIngressStatus(ing *networkingv1.Ingress, ingStatus []corev1.LoadBalancerIngress) error
 	GetServerVersion() *version.Version
 }
@@ -62,7 +63,7 @@ type clientWrapper struct {
 	isNamespaceAll       bool
 	watchedNamespaces    []string
 	serverVersion        *version.Version
-	zoneHint			 string
+	zone                 string
 }
 
 // newInClusterClient returns a new Provider client that is expected to run
@@ -353,6 +354,10 @@ func addServiceFromV1Beta1(ing *networkingv1.Ingress, old networkingv1beta1.Ingr
 			}
 		}
 	}
+}
+
+func (c *clientWrapper) GetZone() string {
+	return c.zone
 }
 
 // UpdateIngressStatus updates an Ingress with a provided status.

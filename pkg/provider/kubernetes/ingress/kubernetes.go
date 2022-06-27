@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -114,7 +115,7 @@ func (p *Provider) newK8sClient(ctx context.Context) (*clientWrapper, error) {
 			return cl, nil
 		}
 		logger.Debugf("Setting topology aware endpoint filtering to zone: %s", zone)
-		cl.zoneHint = zone
+		cl.zone = zone
 	}
 	return cl, nil
 }
@@ -591,6 +592,7 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 		if !endpointSliceExists {
 			return nil, errors.New("endpointSlices not found")
 		}
+
 		for _, endpointSlice := range endpointSlices {
 			var port int32
 			for _, p := range endpointSlice.Ports {
@@ -605,14 +607,46 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 			}
 
 			protocol := getProtocol(portSpec, portName, svcConfig)
-			for _, endpoint := range endpointSlice.Endpoints {
-				if *endpoint.Conditions.Ready {
-					for _, address := range endpoint.Addresses{
-						hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
 
-						svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
-							URL: fmt.Sprintf("%s://%s", protocol, hostPort),
-						})
+			//Gather endpoint Zones
+			var zoneHints = sets.String {}
+			for _, endpoint := range endpointSlice.Endpoints {
+				if endpoint.Hints != nil && len(endpoint.Hints.ForZones) > 0 && *endpoint.Conditions.Ready {
+					for _, zone := range endpoint.Hints.ForZones {
+						zoneHints.Insert(zone.Name)
+					}
+				}
+			}
+
+			//Do we have endpoints in our Zone
+			if zoneHints.Has(client.GetZone()) {
+				for _, endpoint := range endpointSlice.Endpoints {
+					if endpoint.Hints != nil && len(endpoint.Hints.ForZones) > 0 && *endpoint.Conditions.Ready {
+						var endpointHints = sets.String {}
+						for _, zone := range endpoint.Hints.ForZones {
+							endpointHints.Insert(zone.Name)
+						}
+						if endpointHints.Has(client.GetZone()){
+							for _, address := range endpoint.Addresses{
+								hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
+
+								svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
+									URL: fmt.Sprintf("%s://%s", protocol, hostPort),
+								})
+							}
+						}
+					}
+				}
+			} else {
+				for _, endpoint := range endpointSlice.Endpoints {
+					if *endpoint.Conditions.Ready {
+						for _, address := range endpoint.Addresses{
+							hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
+
+							svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
+								URL: fmt.Sprintf("%s://%s", protocol, hostPort),
+							})
+						}
 					}
 				}
 			}
