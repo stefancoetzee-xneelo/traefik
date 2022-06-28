@@ -611,29 +611,22 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 			//Gather endpoint Zones
 			var zoneHints = sets.String {}
 			for _, endpoint := range endpointSlice.Endpoints {
-				if endpoint.Hints != nil && len(endpoint.Hints.ForZones) > 0 && *endpoint.Conditions.Ready {
-					for _, zone := range endpoint.Hints.ForZones {
-						zoneHints.Insert(zone.Name)
-					}
+				if *endpoint.Conditions.Ready {
+					zoneHints.Insert(*endpoint.Zone)
 				}
 			}
 
+			clientZone := client.GetZone()
 			//Do we have endpoints in our Zone
-			if zoneHints.Has(client.GetZone()) {
+			if zoneHints.Has(clientZone) {
 				for _, endpoint := range endpointSlice.Endpoints {
-					if endpoint.Hints != nil && len(endpoint.Hints.ForZones) > 0 && *endpoint.Conditions.Ready {
-						var endpointHints = sets.String {}
-						for _, zone := range endpoint.Hints.ForZones {
-							endpointHints.Insert(zone.Name)
-						}
-						if endpointHints.Has(client.GetZone()){
-							for _, address := range endpoint.Addresses{
-								hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
+					if *endpoint.Zone == clientZone && *endpoint.Conditions.Ready {
+						for _, address := range endpoint.Addresses{
+							hostPort := net.JoinHostPort(address, strconv.Itoa(int(port)))
 
-								svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
-									URL: fmt.Sprintf("%s://%s", protocol, hostPort),
-								})
-							}
+							svc.LoadBalancer.Servers = append(svc.LoadBalancer.Servers, dynamic.Server{
+								URL: fmt.Sprintf("%s://%s", protocol, hostPort),
+							})
 						}
 					}
 				}
