@@ -14,7 +14,7 @@ import (
 	"github.com/traefik/traefik/v2/pkg/provider/kubernetes/k8s"
 	traefikversion "github.com/traefik/traefik/v2/pkg/version"
 	corev1 "k8s.io/api/core/v1"
-	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	networkingv1beta1 "k8s.io/api/networking/v1beta1"
 	kubeerror "k8s.io/apimachinery/pkg/api/errors"
@@ -46,7 +46,7 @@ type Client interface {
 	GetService(namespace, name string) (*corev1.Service, bool, error)
 	GetSecret(namespace, name string) (*corev1.Secret, bool, error)
 	GetEndpoints(namespace, name string) (*corev1.Endpoints, bool, error)
-	GetEndpointSlice(namespace, name string) ([]*discoveryv1beta1.EndpointSlice, bool, error)
+	GetEndpointSlice(namespace, name string) ([]*discoveryv1.EndpointSlice, bool, error)
 	GetNode(name string) (*corev1.Node, bool, error)
 	GetZone() (string)
 	UpdateIngressStatus(ing *networkingv1.Ingress, ingStatus []corev1.LoadBalancerIngress) error
@@ -186,6 +186,7 @@ func (c *clientWrapper) WatchAll(namespaces []string, stopCh <-chan struct{}) (<
 		factoryKube := informers.NewSharedInformerFactoryWithOptions(c.clientset, resyncPeriod, informers.WithNamespace(ns))
 		factoryKube.Core().V1().Services().Informer().AddEventHandler(eventHandler)
 		factoryKube.Core().V1().Endpoints().Informer().AddEventHandler(eventHandler)
+		factoryKube.Discovery().V1().EndpointSlices().Informer().AddEventHandler(eventHandler)
 		c.factoriesKube[ns] = factoryKube
 
 		factorySecret := informers.NewSharedInformerFactoryWithOptions(c.clientset, resyncPeriod, informers.WithNamespace(ns), informers.WithTweakListOptions(notOwnedByHelm))
@@ -466,15 +467,15 @@ func (c *clientWrapper) GetEndpoints(namespace, name string) (*corev1.Endpoints,
 	return endpoint, exist, err
 }
 
-// GetEndpointSlice returns the named endpointslices from the given namespace.
-func (c *clientWrapper) GetEndpointSlice(namespace, name string) ([]*discoveryv1beta1.EndpointSlice, bool, error) {
+// GetEndpointSlice returns the named endpointslice from the given namespace.
+func (c *clientWrapper) GetEndpointSlice(namespace, name string) ([]*discoveryv1.EndpointSlice, bool, error) {
 	if !c.isWatchedNamespace(namespace) {
 		return nil, false, fmt.Errorf("failed to get endpointslice %s/%s: namespace is not within watched namespaces", namespace, name)
 	}
 
 	//Select endpointslice using service name label
-	validatedSelector, _ := labels.ValidatedSelectorFromSet(map[string]string{"kubernetes.io/service-name:": name})
-	endpointslice, err := c.factoriesKube[c.lookupNamespace(namespace)].Discovery().V1beta1().EndpointSlices().Lister().EndpointSlices(namespace).List(validatedSelector)
+	selector, err := labels.Parse("kubernetes.io/service-name=" + name)
+	endpointslice, err := c.factoriesKube[c.lookupNamespace(namespace)].Discovery().V1().EndpointSlices().Lister().EndpointSlices(namespace).List(selector)
 	exist, err := translateNotFoundError(err)
 	return endpointslice, exist, err
 }
