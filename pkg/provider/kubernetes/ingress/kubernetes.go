@@ -583,7 +583,9 @@ func (p *Provider) loadService(client Client, namespace string, backend networki
 		return svc, nil
 	}
 
-	if p.AllowTopologyAwareHints {
+	topologyAnnotation, topologyExists := service.Annotations[corev1.AnnotationTopologyAwareHints]
+	if p.AllowTopologyAwareHints && topologyExists &&
+		(topologyAnnotation == "auto" || topologyAnnotation == "Auto") {
 		endpointSlices, endpointSliceExists, endpointSliceErr := client.GetEndpointSlice(namespace, backend.Service.Name)
 		if endpointSliceErr != nil {
 			return nil, endpointSliceErr
